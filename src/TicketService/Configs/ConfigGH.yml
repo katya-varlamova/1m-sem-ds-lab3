@@ -1,0 +1,6 @@
+DB_HOST: "postgres"
+DB_NAME: "tickets"
+DB_PORT: "5432"
+DB_USER: "postgres"
+DB_USER_PASSWORD: "postgres"
+LogFile: "log.log"

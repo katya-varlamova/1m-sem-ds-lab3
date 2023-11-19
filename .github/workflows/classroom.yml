@@ -3,12 +3,13 @@ on:
   push:
     branches:
       - master
+      - lab_02
   pull_request:
     branches:
       - master
 jobs:
   build:
-    name: Autograding
+    name: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -17,43 +18,53 @@ jobs:
 
       - uses: docker/setup-buildx-action@v2
 
-      # TODO build and run unit tests
-
       - name: Build images
         timeout-minutes: 10
-        run: docker compose build
+        run: |
+          docker-compose build postgres
+          docker-compose build api-gateway
+          docker-compose build flight-service
+          docker-compose build bonus-service
+          docker-compose build ticket-service
+      - name: Setup db
+        run: |
+          docker-compose up -d postgres
+          docker-compose logs postgres
+          sleep 5
+          cd postgres
+          chmod +x ./create-test-db.sh  && ./create-test-db.sh
+          cd ..
 
       - name: Run containers
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: |
-          docker compose up -d
-          ./scripts/wait-script.sh
+          docker-compose up -d ticket-service
+          docker-compose up -d flight-service
+          docker-compose up -d bonus-service
+          docker-compose up -d api-gateway
+
+          docker-compose logs ticket-service
+          docker-compose logs flight-service
+          docker-compose logs bonus-service
+          docker-compose logs api-gateway
+          chmod +x ./scripts/wait-script.sh  && ./scripts/wait-script.sh
         env:
           WAIT_PORTS: 8080,8070,8060,8050
 
-      # TODO setup variant, service and port
-
       - name: Run API Tests
-        timeout-minutes: 5
-        run: ./scripts/test-script.sh
-        env:
-          VARIANT: <variant>
-          SERVICE_NAME: <your service name>
-          PORT_NUMBER: <port number>
-
-      - uses: education/autograding@v1
-        id: autograder
-        continue-on-error: true
-
-      - name: Github auto grader mark
-        uses: Romanow/google-sheet-autograder-marker@v1.0
+        uses: matt-ball/newman-action@master
         with:
-          google_token: ${{secrets.GOOGLE_API_KEY}}
-          sheet_id: "1xkgjUX6Qmk7rdJG-QPOToav-HWWtthJjnShIKnw3oIY"
-          homework_number: 3
-          user_column: 'D'
-          column_offset: 'F'
-          mark: "'+"
+          collection: v1/postman/collection.json
+          environment: v1/postman/environment.json
+          delayRequest: 100
+          reporters: '[ "cli" ]'
+
+      - name: Run Unit Tests
+        run: |
+          chmod +x ./create-test-db.sh  && ./create-test-db.sh
+          python3 src/TicketService/itests/itests.py
+          python3 src/FlightService/itests/itests.py
+          python3 src/BonusService/itests/itests.py
 
       - name: Stop containers
         if: always()
