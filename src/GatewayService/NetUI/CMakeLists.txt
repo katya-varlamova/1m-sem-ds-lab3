@@ -12,4 +12,6 @@ target_sources( ${PROJECT_NAME}
     PRIVATE
         OatppServer.cpp
         controller/GatewayController.cpp
+        Constants.hpp
+        controller/CircuitBreaker.cpp
 )

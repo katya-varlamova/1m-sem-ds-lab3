@@ -145,3 +145,24 @@ PGTicketRepository::DeleteTicket(const std::string & uuid, const std::string &us
     LoggerFactory::GetLogger()->LogInfo( "CancelTicket: Ticket was deleted" );
     PQclear( pgRes );
 }
+
+void PGTicketRepository::RollbackCreateTicket(const std::string &uuid, const std::string &username) {
+    m_connectionCreator->CheckConnectAndReopenIfNeeded( m_conn );
+    std::string query(
+            "delete from ticket where ticket_uid = '" + uuid + "' and username = '" + username +"';"
+    );
+    PGresult* pgRes = PQexec( m_conn, query.c_str() );
+
+    if ( PQresultStatus( pgRes ) != PGRES_COMMAND_OK ) {
+        LoggerFactory::GetLogger()->LogWarning(
+                ( std::string( "RollbackCreateTicket: there was no such Ticket: " ) +
+                  PQresultErrorMessage( pgRes ) )
+                        .c_str()
+        );
+        PQclear( pgRes );
+        throw DatabaseExecutionException( "there was no such Ticket" );
+    }
+
+    LoggerFactory::GetLogger()->LogInfo( "RollbackCreateTicket: Ticket was deleted" );
+    PQclear( pgRes );
+}

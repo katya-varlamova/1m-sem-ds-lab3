@@ -142,6 +142,38 @@ public:
         }
 
     };
+    ENDPOINT_ASYNC("DELETE", "/api/v1/tickets/{uuid}", TicketDeletePoint ) {
+    ENDPOINT_ASYNC_INIT(TicketDeletePoint)
+        Action act() override {
+            std::string uuid = request->getPathVariable("uuid");
+            if (uuid.empty()){
+                auto dto = ValidationErrorResponse::createShared();
+                dto->message = "Invalid data";
+                oatpp::Vector<String> errors({});
+                errors->push_back("Invalid request header: no uuid provided");
+                dto->errors = errors;
+                return _return(controller->createDtoResponse(Status::CODE_400, dto));
+            }
+            auto un = request->getHeader("X-User-Name");
+            if (!un){
+                auto dto = ValidationErrorResponse::createShared();
+                dto->message = "Invalid data";
+                oatpp::Vector<String> errors({});
+                errors->push_back("Invalid request header: no username provided");
+                dto->errors = errors;
+                return _return(controller->createDtoResponse(Status::CODE_400, dto));
+            }
+            try {
+                facade->RollbackCreateTicket(uuid, un);
+                return _return(controller->createResponse(Status::CODE_200));
+            } catch (DatabaseException) {
+                auto dto = ErrorResponse::createShared();
+                dto->message = "Not found!";
+                return _return(controller->createDtoResponse(Status::CODE_404, dto));
+            }
+        }
+
+    };
     ENDPOINT_ASYNC("PATCH", "/api/v1/tickets/{uuid}", TicketUpdatePoint ) {
     ENDPOINT_ASYNC_INIT(TicketUpdatePoint)
         Action act() override {

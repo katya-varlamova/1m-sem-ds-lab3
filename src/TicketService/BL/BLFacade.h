@@ -13,6 +13,7 @@ public:
     std::vector<Ticket> GetTicketsByUsername(const std::string &username) override;
     virtual std::string CreateTicket( const Ticket& Ticket ) override;
     virtual void DeleteTicket(const std::string & uuid, const std::string &username ) override;
+    void RollbackCreateTicket(const std::string &uuid, const std::string &username) override;
 protected:
     IDAFacadePtr m_da_facade;
     IUUIDGeneratorPtr uuidGenerator;

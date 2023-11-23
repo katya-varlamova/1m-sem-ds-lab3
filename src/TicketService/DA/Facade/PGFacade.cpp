@@ -20,3 +20,7 @@ void PGFacade::DeleteTicket(const std::string &uuid, const std::string &username
 {
     m_TicketRepository->DeleteTicket(uuid, username);
 }
+void PGFacade::RollbackCreateTicket(const std::string &uuid, const std::string &username)
+{
+    m_TicketRepository->RollbackCreateTicket(uuid, username);
+}

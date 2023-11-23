@@ -17,3 +17,6 @@ void BLFacade::DeleteTicket(const std::string & uuid, const std::string &usernam
 {
     m_da_facade->DeleteTicket(uuid, username);
 }
+void BLFacade::RollbackCreateTicket(const std::string &uuid, const std::string &username) {
+    m_da_facade->RollbackCreateTicket(uuid, username);
+}

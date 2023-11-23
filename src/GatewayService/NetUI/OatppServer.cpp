@@ -13,7 +13,9 @@ void OatppServer::run() {
     GatewayController::bonusService = components.bonusService.getObject();
     GatewayController::flightService = components.flightService.getObject();
     GatewayController::ticketService = components.ticketService.getObject();
-
+    GatewayController::circuits[Qualifiers::SERVICE_FLIGHT] = ICircuitBreakerPtr(new CircuitBreaker(3, 10));
+    GatewayController::circuits[Qualifiers::SERVICE_TICKET] = ICircuitBreakerPtr(new CircuitBreaker(3, 10));
+    GatewayController::circuits[Qualifiers::SERVICE_BONUS] = ICircuitBreakerPtr(new CircuitBreaker(3, 10));
     auto router = components.httpRouter.getObject();
 
     router->addController(GatewayController::createShared());

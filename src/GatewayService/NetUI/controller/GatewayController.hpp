@@ -16,7 +16,9 @@
 #include "oatpp/core/macro/codegen.hpp"
 #include "oatpp/core/macro/component.hpp"
 #include <iostream>
-
+#include "CircuitBreaker.h"
+#include "Constants.hpp"
+#include <map>
 #include OATPP_CODEGEN_BEGIN(ApiController) //<--- codegen begin
 
 class GatewayController : public oatpp::web::server::api::ApiController {
@@ -26,8 +28,9 @@ protected:
     GatewayController(const std::shared_ptr<ObjectMapper>& objectMapper)
             : oatpp::web::server::api::ApiController(objectMapper)
     {}
-
+    static std::map<std::string, std::mutex> locks;
 public:
+    static std::map<std::string, ICircuitBreakerPtr> circuits;
     static std::shared_ptr<BonusService> bonusService;
     static std::shared_ptr<FlightService> flightService;
     static std::shared_ptr<TicketService> ticketService;
@@ -62,12 +65,24 @@ public:
                 return _return(controller->createDtoResponse(Status::CODE_400, dto));
             }
 
-            auto response = flightService->FlightsGetPoint(page, pageSize);
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> response;
+            locks[Qualifiers::SERVICE_FLIGHT].lock();
 
-            if (response->getStatusCode() != 200)
-            {
+            if (!circuits[Qualifiers::SERVICE_FLIGHT]->isAvailable()) {
+                locks[Qualifiers::SERVICE_FLIGHT].unlock();
                 return _return(controller->createResponse(Status::CODE_500));
             }
+            try {
+                response = flightService->FlightsGetPoint(page, pageSize);
+            } catch (...){
+                circuits[Qualifiers::SERVICE_FLIGHT]->onFailure();
+                locks[Qualifiers::SERVICE_FLIGHT].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+
+            circuits[Qualifiers::SERVICE_FLIGHT]->onSuccess();
+
+            locks[Qualifiers::SERVICE_FLIGHT].unlock();
 
             auto flights = response->readBodyToDto<oatpp::Object<FlightsResponseDto>>(
                     controller->getDefaultObjectMapper());
@@ -89,7 +104,26 @@ public:
                 return _return(controller->createDtoResponse(Status::CODE_400, dto));
             }
 
-            auto ticketResponse = ticketService->TicketGetPoint(uuid);
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> ticketResponse;
+            locks[Qualifiers::SERVICE_TICKET].lock();
+
+            if (!circuits[Qualifiers::SERVICE_TICKET]->isAvailable()) {
+                locks[Qualifiers::SERVICE_TICKET].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+            try {
+                ticketResponse = ticketService->TicketGetPoint(uuid);
+            } catch (...){
+                circuits[Qualifiers::SERVICE_TICKET]->onFailure();
+                locks[Qualifiers::SERVICE_TICKET].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+
+            circuits[Qualifiers::SERVICE_TICKET]->onSuccess();
+
+            locks[Qualifiers::SERVICE_TICKET].unlock();
+
+
             if (ticketResponse->getStatusCode() != 200)
             {
                 if (ticketResponse->getStatusCode() == 404)
@@ -98,21 +132,38 @@ public:
             }
             auto ticket = ticketResponse->readBodyToDto<oatpp::Object<TicketResponseDto>>(controller->getDefaultObjectMapper());
 
-            auto flightResponse = flightService->FlightGetPoint(ticket->flightNumber);
-            if (flightResponse->getStatusCode() != 200)
-            {
-                return _return(controller->createResponse(Status::CODE_500));
-            }
-            auto flight = flightResponse->readBodyToDto<oatpp::Object<FlightResponseDto>>(controller->getDefaultObjectMapper());
-
             auto ticketDto = FullTicketResponseDto::createShared();
             ticketDto->flightNumber = ticket->flightNumber;
             ticketDto->ticketUid = ticket->ticketUid;
             ticketDto->status = ticket->status;
             ticketDto->price = ticket->price;
-            ticketDto->date = flight->date;
-            ticketDto->fromAirport = flight->fromAirport;
-            ticketDto->toAirport = flight->toAirport;
+            ticketDto->date = "";
+            ticketDto->fromAirport = "";
+            ticketDto->toAirport = "";
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> flightResponse;
+
+            locks[Qualifiers::SERVICE_FLIGHT].lock();
+
+            if (circuits[Qualifiers::SERVICE_FLIGHT]->isAvailable()) {
+                try {
+                    flightResponse = flightService->FlightGetPoint(ticket->flightNumber);
+                    circuits[Qualifiers::SERVICE_FLIGHT]->onSuccess();
+                    if (flightResponse->getStatusCode() != 200)
+                    {
+                        return _return(controller->createResponse(Status::CODE_500));
+                    }
+                    auto flight = flightResponse->readBodyToDto<oatpp::Object<FlightResponseDto>>(controller->getDefaultObjectMapper());
+
+                    ticketDto->date = flight->date;
+                    ticketDto->fromAirport = flight->fromAirport;
+                    ticketDto->toAirport = flight->toAirport;
+                } catch (...) {
+                    circuits[Qualifiers::SERVICE_FLIGHT]->onFailure();
+                }
+            }
+
+            locks[Qualifiers::SERVICE_FLIGHT].unlock();
+
 
             return _return(controller->createDtoResponse(Status::CODE_200, ticketDto));
 
@@ -132,28 +183,60 @@ public:
                 dto->errors = errors;
                 return _return(controller->createDtoResponse(Status::CODE_400, dto));
             }
-            auto ticketsResponse = ticketService->TicketsGetPoint(un);
-            if (ticketsResponse->getStatusCode() != 200) {
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> ticketResponse;
+            locks[Qualifiers::SERVICE_TICKET].lock();
+
+            if (!circuits[Qualifiers::SERVICE_TICKET]->isAvailable()) {
+                locks[Qualifiers::SERVICE_TICKET].unlock();
                 return _return(controller->createResponse(Status::CODE_500));
             }
-            auto tickets = ticketsResponse->readBodyToDto<oatpp::Vector<oatpp::Object<TicketResponseDto>>>(
+            try {
+                ticketResponse = ticketService->TicketsGetPoint(un);
+            } catch (...){
+                circuits[Qualifiers::SERVICE_TICKET]->onFailure();
+                locks[Qualifiers::SERVICE_TICKET].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+
+            circuits[Qualifiers::SERVICE_TICKET]->onSuccess();
+
+            locks[Qualifiers::SERVICE_TICKET].unlock();
+
+            auto tickets = ticketResponse->readBodyToDto<oatpp::Vector<oatpp::Object<TicketResponseDto>>>(
                     controller->getDefaultObjectMapper());
             oatpp::Vector<oatpp::Object<FullTicketResponseDto>> dtoVector({});
             for (const auto &t : *tickets) {
-                auto flightResponse = flightService->FlightGetPoint(t->flightNumber);
-                if (flightResponse->getStatusCode() != 200) {
-                    return _return(controller->createResponse(Status::CODE_500));
-                }
-                auto flight = flightResponse->readBodyToDto<oatpp::Object<FlightResponseDto>>(
-                        controller->getDefaultObjectMapper());
+
                 auto ticketDto = FullTicketResponseDto::createShared();
+
+                std::shared_ptr<oatpp::web::protocol::http::incoming::Response> flightResponse;
+
+                locks[Qualifiers::SERVICE_FLIGHT].lock();
+
+                if (circuits[Qualifiers::SERVICE_FLIGHT]->isAvailable()) {
+                    try {
+                        flightResponse = flightService->FlightGetPoint(t->flightNumber);
+                        circuits[Qualifiers::SERVICE_FLIGHT]->onSuccess();
+                        if (flightResponse->getStatusCode() != 200)
+                        {
+                            return _return(controller->createResponse(Status::CODE_500));
+                        }
+                        auto flight = flightResponse->readBodyToDto<oatpp::Object<FlightResponseDto>>(controller->getDefaultObjectMapper());
+
+                        ticketDto->date = flight->date;
+                        ticketDto->fromAirport = flight->fromAirport;
+                        ticketDto->toAirport = flight->toAirport;
+                    } catch (...) {
+                        circuits[Qualifiers::SERVICE_FLIGHT]->onFailure();
+                    }
+                }
+
+                locks[Qualifiers::SERVICE_FLIGHT].unlock();
+
                 ticketDto->flightNumber = t->flightNumber;
                 ticketDto->ticketUid = t->ticketUid;
                 ticketDto->status = t->status;
                 ticketDto->price = t->price;
-                ticketDto->date = flight->date;
-                ticketDto->fromAirport = flight->fromAirport;
-                ticketDto->toAirport = flight->toAirport;
                 dtoVector->push_back(ticketDto);
             }
             return _return(controller->createDtoResponse(Status::CODE_200, dtoVector));
@@ -174,7 +257,26 @@ public:
                 dto->errors = errors;
                 return _return(controller->createDtoResponse(Status::CODE_400, dto));
             }
-            auto bonusResponse = bonusService->BalanceGetPoint(un);
+
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> bonusResponse;
+            locks[Qualifiers::SERVICE_BONUS].lock();
+
+            if (!circuits[Qualifiers::SERVICE_BONUS]->isAvailable()) {
+                locks[Qualifiers::SERVICE_BONUS].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+            try {
+                bonusResponse = bonusService->BalanceGetPoint(un);
+            } catch (...){
+                circuits[Qualifiers::SERVICE_BONUS]->onFailure();
+                locks[Qualifiers::SERVICE_BONUS].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+
+            circuits[Qualifiers::SERVICE_BONUS]->onSuccess();
+
+            locks[Qualifiers::SERVICE_BONUS].unlock();
+
             if (bonusResponse->getStatusCode() != 200) {
                 return _return(controller->createResponse(Status::CODE_500));
             }
@@ -199,41 +301,87 @@ public:
                 dto->errors = errors;
                 return _return(controller->createDtoResponse(Status::CODE_400, dto));
             }
-            auto bonusResponse = bonusService->BalanceGetPoint(un);
-            if (bonusResponse->getStatusCode() != 200) {
-                return _return(controller->createResponse(Status::CODE_500));
-            }
-            auto bonus = bonusResponse->readBodyToDto<oatpp::Object<BalanceResponseDto>>(
-                    controller->getDefaultObjectMapper());
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> bonusResponse;
+            auto balancePartDto = BalanceStatusDto::createShared();
 
-            auto ticketsResponse = ticketService->TicketsGetPoint(un);
-            if (ticketsResponse->getStatusCode() != 200) {
+            locks[Qualifiers::SERVICE_BONUS].lock();
+
+            if (circuits[Qualifiers::SERVICE_BONUS]->isAvailable()) {
+                try {
+                    bonusResponse = bonusService->BalanceGetPoint(un);
+                    circuits[Qualifiers::SERVICE_BONUS]->onSuccess();
+                    if (bonusResponse->getStatusCode() != 200) {
+                        return _return(controller->createResponse(Status::CODE_500));
+                    }
+                    auto bonus = bonusResponse->readBodyToDto<oatpp::Object<BalanceResponseDto>>(
+                            controller->getDefaultObjectMapper());
+                    balancePartDto->balance = bonus->balance;
+                    balancePartDto->status = bonus->status;
+                } catch (...) {
+                    circuits[Qualifiers::SERVICE_BONUS]->onFailure();
+                }
+            }
+
+            locks[Qualifiers::SERVICE_BONUS].unlock();
+
+
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> ticketResponse;
+            locks[Qualifiers::SERVICE_TICKET].lock();
+
+            if (!circuits[Qualifiers::SERVICE_TICKET]->isAvailable()) {
+                locks[Qualifiers::SERVICE_TICKET].unlock();
                 return _return(controller->createResponse(Status::CODE_500));
             }
-            auto tickets = ticketsResponse->readBodyToDto<oatpp::Vector<oatpp::Object<TicketResponseDto>>>(
+            try {
+                ticketResponse = ticketService->TicketsGetPoint(un);
+            } catch (...){
+                circuits[Qualifiers::SERVICE_TICKET]->onFailure();
+                locks[Qualifiers::SERVICE_TICKET].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+
+            circuits[Qualifiers::SERVICE_TICKET]->onSuccess();
+
+            locks[Qualifiers::SERVICE_TICKET].unlock();
+
+            auto tickets = ticketResponse->readBodyToDto<oatpp::Vector<oatpp::Object<TicketResponseDto>>>(
                     controller->getDefaultObjectMapper());
             oatpp::Vector<oatpp::Object<FullTicketResponseDto>> dtoVector({});
             for (const auto &t : *tickets) {
-                auto flightResponse = flightService->FlightGetPoint(t->flightNumber);
-                if (flightResponse->getStatusCode() != 200) {
-                    return _return(controller->createResponse(Status::CODE_500));
-                }
-                auto flight = flightResponse->readBodyToDto<oatpp::Object<FlightResponseDto>>(
-                        controller->getDefaultObjectMapper());
+
                 auto ticketDto = FullTicketResponseDto::createShared();
+
+                std::shared_ptr<oatpp::web::protocol::http::incoming::Response> flightResponse;
+
+                locks[Qualifiers::SERVICE_FLIGHT].lock();
+
+                if (circuits[Qualifiers::SERVICE_FLIGHT]->isAvailable()) {
+                    try {
+                        flightResponse = flightService->FlightGetPoint(t->flightNumber);
+                        circuits[Qualifiers::SERVICE_FLIGHT]->onSuccess();
+                        if (flightResponse->getStatusCode() != 200)
+                        {
+                            return _return(controller->createResponse(Status::CODE_500));
+                        }
+                        auto flight = flightResponse->readBodyToDto<oatpp::Object<FlightResponseDto>>(controller->getDefaultObjectMapper());
+
+                        ticketDto->date = flight->date;
+                        ticketDto->fromAirport = flight->fromAirport;
+                        ticketDto->toAirport = flight->toAirport;
+                    } catch (...) {
+                        circuits[Qualifiers::SERVICE_FLIGHT]->onFailure();
+                    }
+                }
+
+                locks[Qualifiers::SERVICE_FLIGHT].unlock();
+
                 ticketDto->flightNumber = t->flightNumber;
                 ticketDto->ticketUid = t->ticketUid;
                 ticketDto->status = t->status;
                 ticketDto->price = t->price;
-                ticketDto->date = flight->date;
-                ticketDto->fromAirport = flight->fromAirport;
-                ticketDto->toAirport = flight->toAirport;
                 dtoVector->push_back(ticketDto);
             }
 
-            auto balancePartDto = BalanceStatusDto::createShared();
-            balancePartDto->balance = bonus->balance;
-            balancePartDto->status = bonus->status;
 
             auto meDto = UserInfoDto::createShared();
             meDto->privilege = balancePartDto;
@@ -272,7 +420,26 @@ public:
             }
             auto fbrDto = FullBuyResponseDto::createShared();
 
-            auto flightResponse = flightService->FlightGetPoint(body->flightNumber);
+
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> flightResponse;
+            locks[Qualifiers::SERVICE_FLIGHT].lock();
+
+            if (!circuits[Qualifiers::SERVICE_FLIGHT]->isAvailable()) {
+                locks[Qualifiers::SERVICE_FLIGHT].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+            try {
+                flightResponse = flightService->FlightGetPoint(body->flightNumber);
+            } catch (...){
+                circuits[Qualifiers::SERVICE_FLIGHT]->onFailure();
+                locks[Qualifiers::SERVICE_FLIGHT].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+
+            circuits[Qualifiers::SERVICE_FLIGHT]->onSuccess();
+
+            locks[Qualifiers::SERVICE_FLIGHT].unlock();
+
             if (flightResponse->getStatusCode() != 200)
             {
                 return _return(controller->createResponse(Status::CODE_500));
@@ -283,11 +450,33 @@ public:
             auto ticketDto = TicketRequestDto::createShared();
             ticketDto->flightNumber = body->flightNumber;
             ticketDto->price = body->price;
-            auto ticketResp = ticketService->TicketPostPoint(ticketDto, un);
-            if (ticketResp->getStatusCode() != 200) {
+
+
+
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> ticketResponse;
+            locks[Qualifiers::SERVICE_TICKET].lock();
+
+            if (!circuits[Qualifiers::SERVICE_TICKET]->isAvailable()) {
+                locks[Qualifiers::SERVICE_TICKET].unlock();
                 return _return(controller->createResponse(Status::CODE_500));
             }
-            auto ticket = ticketResp->readBodyToDto<oatpp::Object<TicketResponseDto>>(
+            try {
+                ticketResponse = ticketService->TicketPostPoint(ticketDto, un);
+            } catch (...){
+                circuits[Qualifiers::SERVICE_TICKET]->onFailure();
+                locks[Qualifiers::SERVICE_TICKET].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+
+            circuits[Qualifiers::SERVICE_TICKET]->onSuccess();
+
+            locks[Qualifiers::SERVICE_TICKET].unlock();
+
+
+            if (ticketResponse->getStatusCode() != 200) {
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+            auto ticket = ticketResponse->readBodyToDto<oatpp::Object<TicketResponseDto>>(
                     controller->getDefaultObjectMapper());
 
 
@@ -296,10 +485,33 @@ public:
             brDto->ticketUid = ticket->ticketUid;
             brDto->price = body->price;
             brDto->paidFromBalance = body->paidFromBalance;
-            auto bonusResp = bonusService->PurchasePoint(brDto);
-            if (bonusResp->getStatusCode() != 200) {
+
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> bonusResp;
+            locks[Qualifiers::SERVICE_BONUS].lock();
+
+            if (!circuits[Qualifiers::SERVICE_BONUS]->isAvailable()) {
+                locks[Qualifiers::SERVICE_BONUS].unlock();
                 return _return(controller->createResponse(Status::CODE_500));
             }
+            try {
+                bonusResp = bonusService->PurchasePoint(brDto);
+            } catch (...){
+                circuits[Qualifiers::SERVICE_BONUS]->onFailure();
+                locks[Qualifiers::SERVICE_BONUS].unlock();
+
+                ticketService->TicketDeletePoint( un, ticket->ticketUid);
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+
+            circuits[Qualifiers::SERVICE_BONUS]->onSuccess();
+
+            locks[Qualifiers::SERVICE_BONUS].unlock();
+
+            if (bonusResp->getStatusCode() != 200) {
+                ticketService->TicketDeletePoint(un, ticket->ticketUid);
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+
             auto bonus = bonusResp->readBodyToDto<oatpp::Object<BuyResponseDto>>(
                     controller->getDefaultObjectMapper());
 
@@ -334,7 +546,27 @@ public:
                 return _return(controller->createDtoResponse(Status::CODE_400, dto));
             }
 
-            auto ticketResp = ticketService->TicketUpdatePoint(username, ticket_uid);
+
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> ticketResp;
+            locks[Qualifiers::SERVICE_TICKET].lock();
+
+            if (!circuits[Qualifiers::SERVICE_TICKET]->isAvailable()) {
+                locks[Qualifiers::SERVICE_TICKET].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+            try {
+                ticketResp = ticketService->TicketUpdatePoint(username, ticket_uid);
+            } catch (...){
+                circuits[Qualifiers::SERVICE_TICKET]->onFailure();
+                locks[Qualifiers::SERVICE_TICKET].unlock();
+                return _return(controller->createResponse(Status::CODE_500));
+            }
+
+            circuits[Qualifiers::SERVICE_TICKET]->onSuccess();
+
+            locks[Qualifiers::SERVICE_TICKET].unlock();
+
+
             if (ticketResp->getStatusCode() != 200) {
                 auto dto = ErrorResponse::createShared();
                 dto->message = "Not found!";
