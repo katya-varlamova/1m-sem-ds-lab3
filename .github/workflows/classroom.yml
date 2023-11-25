@@ -42,6 +42,7 @@ jobs:
           docker-compose up -d flight-service
           docker-compose up -d bonus-service
           docker-compose up -d api-gateway
+          docker-compose up -d cancel-bonus-broker
 
           docker-compose logs ticket-service
           docker-compose logs flight-service

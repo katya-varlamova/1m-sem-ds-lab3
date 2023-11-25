@@ -19,6 +19,7 @@
 #include "CircuitBreaker.h"
 #include "Constants.hpp"
 #include <map>
+#include "IQueueHandler.h"
 #include OATPP_CODEGEN_BEGIN(ApiController) //<--- codegen begin
 
 class GatewayController : public oatpp::web::server::api::ApiController {
@@ -34,6 +35,7 @@ public:
     static std::shared_ptr<BonusService> bonusService;
     static std::shared_ptr<FlightService> flightService;
     static std::shared_ptr<TicketService> ticketService;
+    static IQueueHandlerPtr queue;
 
     static std::shared_ptr<GatewayController> createShared(OATPP_COMPONENT(std::shared_ptr<ObjectMapper>,
                                                                            objectMapper)) {
@@ -572,12 +574,17 @@ public:
                 dto->message = "Not found!";
                 return _return(controller->createDtoResponse(Status::CODE_404, dto));
             }
+            std::shared_ptr<oatpp::web::protocol::http::incoming::Response> bonusResp;
+            try {
+                bonusResp = bonusService->ReturnPoint(ticket_uid, username);
+            } catch (...){
+                queue->Publish(ticket_uid, username);
+                return _return(controller->createResponse(Status::CODE_204));
+            }
 
-            auto bonusResp = bonusService->ReturnPoint(ticket_uid, username);
             if (bonusResp->getStatusCode() != 200) {
-                auto dto = ErrorResponse::createShared();
-                dto->message = "Not found!";
-                return _return(controller->createDtoResponse(Status::CODE_404, dto));
+                queue->Publish(ticket_uid, username);
+                return _return(controller->createResponse(Status::CODE_204));
             }
             return _return(controller->createResponse(Status::CODE_204));
         }

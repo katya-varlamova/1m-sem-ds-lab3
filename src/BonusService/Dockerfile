@@ -1,4 +1,4 @@
-FROM katyavarlamova/ds-project as builder
+FROM ds-project as builder
 
 COPY ./BonusService /src 
 WORKDIR /src

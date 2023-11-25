@@ -14,4 +14,5 @@ target_sources( ${PROJECT_NAME}
         controller/GatewayController.cpp
         Constants.hpp
         controller/CircuitBreaker.cpp
+        controller/RabbitMqQueueHandler.cpp
 )

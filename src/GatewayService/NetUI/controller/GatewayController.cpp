@@ -5,3 +5,4 @@ std::shared_ptr<FlightService> GatewayController::flightService;
 std::shared_ptr<TicketService> GatewayController::ticketService;
 std::map<std::string, ICircuitBreakerPtr> GatewayController::circuits;
 std::map<std::string, std::mutex> GatewayController::locks;
+IQueueHandlerPtr GatewayController::queue;
