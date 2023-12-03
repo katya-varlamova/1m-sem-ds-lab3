@@ -26,6 +26,7 @@ jobs:
           docker-compose build flight-service
           docker-compose build bonus-service
           docker-compose build ticket-service
+          docker-compose build cancel-bonus-broker
       - name: Setup db
         run: |
           docker-compose up -d postgres
@@ -34,13 +35,14 @@ jobs:
           cd postgres
           chmod +x ./create-test-db.sh  && ./create-test-db.sh
           cd ..
+      - name: Setup broker
+        run: |
+          docker-compose up -d rabbitmq
+          sleep 5
 
       - name: Run containers
         timeout-minutes: 10
         run: |
-          docker-compose up -d ticket-service
-          docker-compose up -d flight-service
-          docker-compose up -d bonus-service
           docker-compose up -d api-gateway
           docker-compose up -d cancel-bonus-broker
 
@@ -48,24 +50,14 @@ jobs:
           docker-compose logs flight-service
           docker-compose logs bonus-service
           docker-compose logs api-gateway
+          docker-compose logs cancel-bonus-broker
           chmod +x ./scripts/wait-script.sh  && ./scripts/wait-script.sh
         env:
           WAIT_PORTS: 8080,8070,8060,8050
 
       - name: Run API Tests
-        uses: matt-ball/newman-action@master
-        with:
-          collection: v1/postman/collection.json
-          environment: v1/postman/environment.json
-          delayRequest: 100
-          reporters: '[ "cli" ]'
-
-      - name: Run Unit Tests
-        run: |
-          chmod +x ./create-test-db.sh  && ./create-test-db.sh
-          python3 src/TicketService/itests/itests.py
-          python3 src/FlightService/itests/itests.py
-          python3 src/BonusService/itests/itests.py
+        timeout-minutes: 5
+        run: ./scripts/test-script.sh v1 bonus-service 8050
 
       - name: Stop containers
         if: always()

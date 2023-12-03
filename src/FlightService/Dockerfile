@@ -1,4 +1,4 @@
-FROM ds-project as builder
+FROM katyavarlamova/ds-project as builder
 
 COPY ./FlightService /src 
 WORKDIR /src

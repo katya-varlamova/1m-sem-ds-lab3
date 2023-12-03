@@ -1,4 +1,4 @@
-set( CMAKE_CXX_STANDARD 17 )
+set( CMAKE_CXX_STANDARD 20 )
 
 if ( UNIX OR MINGW )
     set( CMAKE_CXX_FLAGS "-pedantic -Wall -Wextra -Wdiv-by-zero" )

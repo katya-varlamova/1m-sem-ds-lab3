@@ -32,7 +32,7 @@ services:
       - db-data:/var/lib/postgresql/data
       - ./postgres/:/docker-entrypoint-initdb.d/
     ports:
-      - "5434:5432"
+      - "5432:5432"
   cancel-bonus-broker:
     image: cancel-bonus-broker
     container_name: cancel-bonus-broker

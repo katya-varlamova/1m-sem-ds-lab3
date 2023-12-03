@@ -5,6 +5,8 @@ project( ${PROJECT_NAME} CXX )
 add_library_( ${PROJECT_NAME} STATIC 
     DEPENDS
         oatpp::oatpp
+        Boost::boost
+#        amqpcpp
         base
 )
 
@@ -14,5 +16,4 @@ target_sources( ${PROJECT_NAME}
         controller/GatewayController.cpp
         Constants.hpp
         controller/CircuitBreaker.cpp
-        controller/RabbitMqQueueHandler.cpp
 )

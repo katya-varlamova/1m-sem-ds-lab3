@@ -4,15 +4,17 @@
 
 #include <config/base_config.h>
 
+#include <boost/asio.hpp>
+#include <boost/beast.hpp>
 
 #include <amqpcpp.h>
 #include <amqpcpp/libboostasio.h>
-
+#include <boost/asio/io_service.hpp>
 class RabbitMqQueueHandler
         : public IQueueHandler
 {
 public:
-    RabbitMqQueueHandler(const BaseConfigPtr & config, boost::asio::io_context& context, const std::string& queueName);
+    RabbitMqQueueHandler(boost::asio::io_context& context, const std::string& queueName);
     ~RabbitMqQueueHandler() = default;
 
     virtual bool Publish(const std::string &message, const std::string& routingKey) override;
@@ -20,7 +22,6 @@ public:
 private:
     void Connect();
 
-    BaseConfigPtr m_config;
     boost::asio::io_context &m_context;
     std::string m_queueName;
 

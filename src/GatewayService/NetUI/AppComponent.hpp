@@ -3,6 +3,7 @@
 #include "service/TicketService.hpp"
 #include "service/FlightService.hpp"
 #include "service/BonusService.hpp"
+#include "service/BrokerService.hpp"
 #include "oatpp/web/server/AsyncHttpConnectionHandler.hpp"
 #include "oatpp/web/server/HttpRouter.hpp"
 #include "oatpp/web/client/HttpRequestExecutor.hpp"
@@ -29,13 +30,15 @@ private:
   HostPort m_flightService;
   HostPort m_ticketService;
   HostPort m_bonusService;
+  HostPort m_brokerService;
 public:
 
-  AppComponent(const HostPort& facade, const HostPort& flightService, const HostPort& ticketService, const HostPort& bonusService)
+  AppComponent(const HostPort& facade, const HostPort& flightService, const HostPort& ticketService, const HostPort& bonusService, const HostPort& brokerService)
     : m_facade(facade)
     , m_flightService(flightService)
     , m_ticketService(ticketService)
     , m_bonusService(bonusService)
+    , m_brokerService(brokerService)
   {}
 
     OATPP_CREATE_COMPONENT(std::shared_ptr<oatpp::async::Executor>, executor)([] {
@@ -132,5 +135,23 @@ public:
         return TicketService::createShared(requestExecutor, objectMapper);
 
     }());
+    /**
+ * Create BrokerService component
+ */
+    OATPP_CREATE_COMPONENT(std::shared_ptr<BrokerService>, brokerService)(Qualifiers::SERVICE_FACADE, [this] {
+
+        OATPP_COMPONENT(std::shared_ptr<oatpp::data::mapping::ObjectMapper>, objectMapper, Qualifiers::SERVICE_FACADE);
+
+        std::shared_ptr<oatpp::network::ClientConnectionProvider> connectionProvider;
+
+        connectionProvider = oatpp::network::tcp::client::ConnectionProvider::createShared({m_brokerService.host, m_brokerService.port});
+
+        auto connectionPool = oatpp::network::ClientConnectionPool::createShared(connectionProvider, 10, std::chrono::seconds(5));
+
+        auto requestExecutor = oatpp::web::client::HttpRequestExecutor::createShared(connectionPool);
+        return BrokerService::createShared(requestExecutor, objectMapper);
+
+    }());
+
 };
 

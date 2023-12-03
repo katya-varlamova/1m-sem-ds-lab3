@@ -35,7 +35,5 @@ set(Boost_USE_STATIC_LIBS ON)
 find_package(Boost COMPONENTS filesystem unit_test_framework date_time REQUIRED ) #boost::unit_tests boost::filesystem boost::beast etc
 find_package(yaml-cpp REQUIRED)
 find_package(spdlog REQUIRED) # spdlog::spdlog
-find_package(OpenSSL REQUIRED) # OpenSSL::SSL OpenSSL::Crypto
-find_package(cpp-jwt REQUIRED)
 find_package(jsoncpp REQUIRED)
 find_package(oatpp REQUIRED)

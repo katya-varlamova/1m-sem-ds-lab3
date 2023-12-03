@@ -5,11 +5,12 @@
 #include "dto/FlightDtos.hpp"
 #include <dto/TicketDtos.hpp>
 #include <dto/GatewayDtos.h>
+#include "logger/LoggerFactory.h"
 
 #include "service/BonusService.hpp"
 #include "service/FlightService.hpp"
 #include "service/TicketService.hpp"
-
+#include "service/BrokerService.hpp"
 #include "oatpp/web/server/api/ApiController.hpp"
 
 #include "oatpp/parser/json/mapping/ObjectMapper.hpp"
@@ -35,7 +36,7 @@ public:
     static std::shared_ptr<BonusService> bonusService;
     static std::shared_ptr<FlightService> flightService;
     static std::shared_ptr<TicketService> ticketService;
-    static IQueueHandlerPtr queue;
+    static std::shared_ptr<BrokerService> brokerService;
 
     static std::shared_ptr<GatewayController> createShared(OATPP_COMPONENT(std::shared_ptr<ObjectMapper>,
                                                                            objectMapper)) {
@@ -72,14 +73,14 @@ public:
 
             if (!circuits[Qualifiers::SERVICE_FLIGHT]->isAvailable()) {
                 locks[Qualifiers::SERVICE_FLIGHT].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
             try {
                 response = flightService->FlightsGetPoint(page, pageSize);
             } catch (...){
                 circuits[Qualifiers::SERVICE_FLIGHT]->onFailure();
                 locks[Qualifiers::SERVICE_FLIGHT].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
 
             circuits[Qualifiers::SERVICE_FLIGHT]->onSuccess();
@@ -111,14 +112,14 @@ public:
 
             if (!circuits[Qualifiers::SERVICE_TICKET]->isAvailable()) {
                 locks[Qualifiers::SERVICE_TICKET].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
             try {
                 ticketResponse = ticketService->TicketGetPoint(uuid);
             } catch (...){
                 circuits[Qualifiers::SERVICE_TICKET]->onFailure();
                 locks[Qualifiers::SERVICE_TICKET].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
 
             circuits[Qualifiers::SERVICE_TICKET]->onSuccess();
@@ -190,14 +191,14 @@ public:
 
             if (!circuits[Qualifiers::SERVICE_TICKET]->isAvailable()) {
                 locks[Qualifiers::SERVICE_TICKET].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
             try {
                 ticketResponse = ticketService->TicketsGetPoint(un);
             } catch (...){
                 circuits[Qualifiers::SERVICE_TICKET]->onFailure();
                 locks[Qualifiers::SERVICE_TICKET].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
 
             circuits[Qualifiers::SERVICE_TICKET]->onSuccess();
@@ -265,14 +266,19 @@ public:
 
             if (!circuits[Qualifiers::SERVICE_BONUS]->isAvailable()) {
                 locks[Qualifiers::SERVICE_BONUS].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                auto dto = ErrorResponse::createShared();
+                dto->message = "Bonus Service unavailable";
+                return _return(controller->createDtoResponse(Status::CODE_502, dto));
             }
             try {
                 bonusResponse = bonusService->BalanceGetPoint(un);
             } catch (...){
                 circuits[Qualifiers::SERVICE_BONUS]->onFailure();
                 locks[Qualifiers::SERVICE_BONUS].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+
+                auto dto = ErrorResponse::createShared();
+                dto->message = "Bonus Service unavailable";
+                return _return(controller->createDtoResponse(Status::CODE_503, dto));
             }
 
             circuits[Qualifiers::SERVICE_BONUS]->onSuccess();
@@ -305,25 +311,27 @@ public:
             }
             std::shared_ptr<oatpp::web::protocol::http::incoming::Response> bonusResponse;
             auto balancePartDto = BalanceStatusDto::createShared();
-
+            auto meDto = UserInfoDto::createShared();
             locks[Qualifiers::SERVICE_BONUS].lock();
-
+            bool pr = false;
             if (circuits[Qualifiers::SERVICE_BONUS]->isAvailable()) {
                 try {
                     bonusResponse = bonusService->BalanceGetPoint(un);
                     circuits[Qualifiers::SERVICE_BONUS]->onSuccess();
                     if (bonusResponse->getStatusCode() != 200) {
-                        return _return(controller->createResponse(Status::CODE_500));
+                        return _return(controller->createResponse(Status::CODE_503));
                     }
                     auto bonus = bonusResponse->readBodyToDto<oatpp::Object<BalanceResponseDto>>(
                             controller->getDefaultObjectMapper());
                     balancePartDto->balance = bonus->balance;
                     balancePartDto->status = bonus->status;
+                    meDto->privilege = balancePartDto;
+                    pr = true;
                 } catch (...) {
                     circuits[Qualifiers::SERVICE_BONUS]->onFailure();
+                    meDto->privilege = nullptr;
                 }
             }
-
             locks[Qualifiers::SERVICE_BONUS].unlock();
 
 
@@ -332,14 +340,14 @@ public:
 
             if (!circuits[Qualifiers::SERVICE_TICKET]->isAvailable()) {
                 locks[Qualifiers::SERVICE_TICKET].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
             try {
                 ticketResponse = ticketService->TicketsGetPoint(un);
             } catch (...){
                 circuits[Qualifiers::SERVICE_TICKET]->onFailure();
                 locks[Qualifiers::SERVICE_TICKET].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
 
             circuits[Qualifiers::SERVICE_TICKET]->onSuccess();
@@ -385,9 +393,16 @@ public:
             }
 
 
-            auto meDto = UserInfoDto::createShared();
-            meDto->privilege = balancePartDto;
+
             meDto->tickets = dtoVector;
+
+            if (!pr){
+                auto ticketsJson = controller->getDefaultObjectMapper()->writeToString(dtoVector);
+                oatpp::String json = "{\"tickets\":" + ticketsJson + ",\"privilege\":{}}";
+                auto resp = controller->createResponse(Status::CODE_200, json);
+                resp->putHeader("Content-Type", "application/json");
+                return _return(resp);
+            }
             return _return(controller->createDtoResponse(Status::CODE_200, meDto));
         }
 
@@ -428,14 +443,14 @@ public:
 
             if (!circuits[Qualifiers::SERVICE_FLIGHT]->isAvailable()) {
                 locks[Qualifiers::SERVICE_FLIGHT].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
             try {
                 flightResponse = flightService->FlightGetPoint(body->flightNumber);
             } catch (...){
                 circuits[Qualifiers::SERVICE_FLIGHT]->onFailure();
                 locks[Qualifiers::SERVICE_FLIGHT].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
 
             circuits[Qualifiers::SERVICE_FLIGHT]->onSuccess();
@@ -460,14 +475,14 @@ public:
 
             if (!circuits[Qualifiers::SERVICE_TICKET]->isAvailable()) {
                 locks[Qualifiers::SERVICE_TICKET].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
             try {
                 ticketResponse = ticketService->TicketPostPoint(ticketDto, un);
             } catch (...){
                 circuits[Qualifiers::SERVICE_TICKET]->onFailure();
                 locks[Qualifiers::SERVICE_TICKET].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
 
             circuits[Qualifiers::SERVICE_TICKET]->onSuccess();
@@ -493,7 +508,12 @@ public:
 
             if (!circuits[Qualifiers::SERVICE_BONUS]->isAvailable()) {
                 locks[Qualifiers::SERVICE_BONUS].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+
+                ticketService->TicketDeletePoint( un, ticket->ticketUid);
+
+                auto dto = ErrorResponse::createShared();
+                dto->message = "Bonus Service unavailable";
+                return _return(controller->createDtoResponse(Status::CODE_503, dto));
             }
             try {
                 bonusResp = bonusService->PurchasePoint(brDto);
@@ -502,7 +522,10 @@ public:
                 locks[Qualifiers::SERVICE_BONUS].unlock();
 
                 ticketService->TicketDeletePoint( un, ticket->ticketUid);
-                return _return(controller->createResponse(Status::CODE_500));
+
+                auto dto = ErrorResponse::createShared();
+                dto->message = "Bonus Service unavailable";
+                return _return(controller->createDtoResponse(Status::CODE_503, dto));
             }
 
             circuits[Qualifiers::SERVICE_BONUS]->onSuccess();
@@ -554,14 +577,14 @@ public:
 
             if (!circuits[Qualifiers::SERVICE_TICKET]->isAvailable()) {
                 locks[Qualifiers::SERVICE_TICKET].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
             try {
                 ticketResp = ticketService->TicketUpdatePoint(username, ticket_uid);
             } catch (...){
                 circuits[Qualifiers::SERVICE_TICKET]->onFailure();
                 locks[Qualifiers::SERVICE_TICKET].unlock();
-                return _return(controller->createResponse(Status::CODE_500));
+                return _return(controller->createResponse(Status::CODE_503));
             }
 
             circuits[Qualifiers::SERVICE_TICKET]->onSuccess();
@@ -578,12 +601,27 @@ public:
             try {
                 bonusResp = bonusService->ReturnPoint(ticket_uid, username);
             } catch (...){
-                queue->Publish(ticket_uid, username);
+                    FILE * f = fopen("message.txt", "w");
+                    fprintf(f, "%s,%s", username.c_str(), ticket_uid.c_str());
+                    fclose(f);
+                    system("python3 /app/build/main/publish.py");
                 return _return(controller->createResponse(Status::CODE_204));
             }
 
             if (bonusResp->getStatusCode() != 200) {
-                queue->Publish(ticket_uid, username);
+                FILE * f = fopen("message.txt", "w");
+                fprintf(f, "%s,%s", username.c_str(), ticket_uid.c_str());
+                fclose(f);
+                system("python3 /app/build/main/publish.py");
+//                    auto publishDto = PublishDto::createShared();
+//                    publishDto->properties = StringsDto::createShared();
+//                    publishDto->properties->smth = "smth";
+//                    publishDto->routing_key = "cancel-bonus";
+//                    publishDto->payload = "aab";
+//                    publishDto->payload_encoding = "string";
+//                    LoggerFactory::GetLogger()->LogInfo("try to publish");
+//                    auto resp = brokerService->PublishPoint("guest:guest", publishDto);
+//                    LoggerFactory::GetLogger()->LogInfo((std::to_string(resp->getStatusCode()) + " -- published with code").c_str());
                 return _return(controller->createResponse(Status::CODE_204));
             }
             return _return(controller->createResponse(Status::CODE_204));
