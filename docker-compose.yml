@@ -1,5 +1,25 @@
 version: "3"
 services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    volumes:
+        # - ./etc/rabbitmq/conf:/etc/rabbitmq/
+        - ./etc/rabbitmq/data/:/var/lib/rabbitmq/
+        # - ./etc/rabbitmq/logs/:/var/log/rabbitmq/
+    #environment:
+        # RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-secret_cookie}
+        # RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-admin}
+        # RABBITMQ_DEFAULT_PASS: 1234
+    ports:
+        - 5672:5672    #amqp
+        - 15672:15672  #http
+        # - 15692:15692  #prometheus
+    healthcheck:
+      test: [ "CMD", "rabbitmqctl", "status"]
+      interval: 5s
+      timeout: 20s
+      retries: 5
   postgres:
     image: library/postgres:13
     container_name: postgres
@@ -13,8 +33,64 @@ services:
       - ./postgres/:/docker-entrypoint-initdb.d/
     ports:
       - "5432:5432"
+  cancel-bonus-broker:
+    image: cancel-bonus-broker
+    container_name: cancel-bonus-broker
+    restart: on-failure
+    build:
+      context: src/broker
+      dockerfile: Dockerfile
+    depends_on:
+      - rabbitmq
+  flight-service:
+    image: flight-service
+    container_name: flight-service
+    restart: on-failure
+    build:
+      context: src
+      dockerfile: FlightService/Dockerfile
+    ports:
+      - "8060:8060"
+    depends_on:
+      - postgres
 
-# TODO добавить сервисы
+  bonus-service:
+    image: bonus-service
+    container_name: bonus-service
+    restart: on-failure
+    build:
+      context: src
+      dockerfile: BonusService/Dockerfile
+    ports:
+      - "8050:8050"
+    depends_on:
+      - postgres
+
+  ticket-service:
+    image: ticket-service
+    container_name: ticket-service
+    restart: on-failure
+    build:
+      context: src
+      dockerfile: TicketService/Dockerfile
+    ports:
+      - "8070:8070"
+    depends_on:
+      - postgres
+
+  api-gateway:
+    image: api-gateway
+    container_name: api-gateway
+    restart: on-failure
+    build:
+      context: src
+      dockerfile: GatewayService/Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ticket-service
+      - bonus-service
+      - flight-service
 
 volumes:
   db-data:
